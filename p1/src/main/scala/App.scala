@@ -4,7 +4,7 @@ import org.apache.spark._
 import java.io.{BufferedWriter, File, FileWriter}
 
 
-object App {
+object AccidentPredictor {
     def main(args: Array[String]): Unit = {
         System.setProperty("hadoop.home.dir", "c:/winutils/")
         Logger.getLogger("org").setLevel(Level.OFF)
@@ -41,7 +41,7 @@ object App {
         val sample1 = filtered.filter{case (sev: String, (_, _, _, _, _, _)) => checkDouble(sev) == 1.0 }.map{
             case (sev: String, (aid: String, stt: String, stLat: String, stLng: String, vis: String, precip: String)) =>
                 (aid, sev, stt, stLat, stLng, vis, precip).productIterator.toArray.mkString(",")}
-        sample1.collect.foreach(str => {
+        sample1.take(minGroupSize).foreach(str => {
             bw.write(str)
             bw.write("\n")})
 
@@ -134,6 +134,9 @@ object App {
             if (maxPrecip.head > maxPrecipAll) { maxPrecipAll = maxPrecip.head }
         })
 
+        val predicted = new File("output.csv")
+        val bwp = new BufferedWriter(new FileWriter(predicted))
+
         testingSet.collect.foreach(acc => {
             val distances = trainingSet.map{case (severity: Double, vector: List[Double]) => (
                 severity,
@@ -155,7 +158,8 @@ object App {
                 case (_, sev: Double) => (sev, 1)}
             val sev = sc.parallelize(topNDistSev).reduceByKey((x, y) => x + y).map{
                 case (sev: Double, count: Int) => (count, sev)}.sortByKey(ascending = false).take(1)(0)._2
-            println(acc._2.head.toString + " actual: " + acc._1.toString + " model: " + sev)
+            //println(acc._2.head.toString + " actual: " + acc._1.toString + " model: " + sev)
+            bw.write(acc._2.head.toString + "," + acc._1.toString + "," + sev + "\n")
         })
     }
 
