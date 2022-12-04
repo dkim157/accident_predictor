@@ -159,7 +159,9 @@ object AccidentPredictor {
             val sev = sc.parallelize(topNDistSev).reduceByKey((x, y) => x + y).map{
                 case (sev: Double, count: Int) => (count, sev)}.sortByKey(ascending = false).take(1)(0)._2
             //println(acc._2.head.toString + " actual: " + acc._1.toString + " model: " + sev)
-            bw.write(acc._2.head.toString + "," + acc._1.toString + "," + sev + "\n")
+            bwp.write(acc._2.head.toString + "," + acc._1.toString + "," + sev + "\n")
+            //EXAMPLE OUTPUT: 12345,2.0,3.0
+            //AccidentID,Known Severity,Predicted Severity
         })
     }
 
