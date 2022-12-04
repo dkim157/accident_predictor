@@ -4,7 +4,7 @@ import org.apache.spark._
 import java.io.{BufferedWriter, File, FileWriter}
 
 
-object App {
+object AccidentPredictor {
     def main(args: Array[String]): Unit = {
         System.setProperty("hadoop.home.dir", "c:/winutils/")
         Logger.getLogger("org").setLevel(Level.OFF)
@@ -68,7 +68,7 @@ object App {
 
         bw.close()
 
-        val n = 20
+        val k = 20
         val set = sc.textFile("accidents.csv").persist
         val trainingSet = set
             .sample(withReplacement = false, .8, 1)
@@ -108,6 +108,12 @@ object App {
         testingSet.take(1).foreach(println)
         println(testingSet.count())
 
+        var maxTimeAll = 0.0
+        var maxLatAll = 0.0
+        var maxLngAll = 0.0
+        var maxVisAll = 0.0
+        var maxPrecipAll = 0.0
+
         testingSet.collect.foreach(acc => {
             val distances = trainingSet.map{case (severity: Double, vector: List[Double]) => (
                 severity,
@@ -117,19 +123,35 @@ object App {
                     Math.abs(acc._2(4) - vector(3)) * 1.0,
                     Math.abs(acc._2(5) - vector(4)) * 1.0))}.persist
             val maxTime = distances.map{case (_, distanceVector: List[Double]) => distanceVector.head}.top(1)
+            if (maxTime.head > maxTimeAll) { maxTimeAll = maxTime.head }
             val maxLat = distances.map{case (_, distanceVector: List[Double]) => distanceVector(1)}.top(1)
+            if (maxLat.head > maxLatAll) { maxLatAll = maxLat.head }
             val maxLng = distances.map{case (_, distanceVector: List[Double]) => distanceVector(2)}.top(1)
+            if (maxLng.head > maxLngAll) { maxLngAll = maxLng.head }
             val maxVis = distances.map{case (_, distanceVector: List[Double]) => distanceVector(3)}.top(1)
+            if (maxVis.head > maxVisAll) { maxVisAll = maxVis.head }
             val maxPrecip = distances.map{case (_, distanceVector: List[Double]) => distanceVector(4)}.top(1)
+            if (maxPrecip.head > maxPrecipAll) { maxPrecipAll = maxPrecip.head }
+        })
+
+        testingSet.collect.foreach(acc => {
+            val distances = trainingSet.map{case (severity: Double, vector: List[Double]) => (
+                severity,
+                List(getTimeDistance(acc._2(1), vector.head) * 1.0, //change 1.0 multiplier to change weight
+                    Math.abs(acc._2(2) - vector(1)) * 1.0,
+                    Math.abs(acc._2(3) - vector(2)) * 1.0,
+                    Math.abs(acc._2(4) - vector(3)) * 1.0,
+                    Math.abs(acc._2(5) - vector(4)) * 1.0))}.persist
+
             val eucDistances = distances.map{case (severity: Double, distanceVector: List[Double]) => (
                 Math.sqrt(
-                    scala.math.pow(distanceVector.head / maxTime.head, 2) +
-                        scala.math.pow(distanceVector(1) / maxLat.head, 2) +
-                        scala.math.pow(distanceVector(2) / maxLng.head, 2) +
-                        scala.math.pow(distanceVector(3) / maxVis.head, 2) +
-                        scala.math.pow(distanceVector(4) / maxPrecip.head, 2)),
+                    scala.math.pow(distanceVector.head / maxTimeAll, 2) +
+                        scala.math.pow(distanceVector(1) / maxLatAll, 2) +
+                        scala.math.pow(distanceVector(2) / maxLngAll, 2) +
+                        scala.math.pow(distanceVector(3) / maxVisAll, 2) +
+                        scala.math.pow(distanceVector(4) / maxPrecipAll, 2)),
                 severity)}
-            val topNDistSev = eucDistances.sortByKey(ascending = false).take(n).map{
+            val topNDistSev = eucDistances.sortByKey(ascending = false).take(k).map{
                 case (_, sev: Double) => (sev, 1)}
             val sev = sc.parallelize(topNDistSev).reduceByKey((x, y) => x + y).map{
                 case (sev: Double, count: Int) => (count, sev)}.sortByKey(ascending = false).take(1)(0)._2
