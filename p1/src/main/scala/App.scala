@@ -188,4 +188,34 @@ object App {
         }
         ret
     }
+
+    def getPrecision(): Unit={
+        // read in csv's
+        val home = System.getProperty("user.home")
+        val path = s"${home}/Documents/CSC369/misc/scratch/sparkscala/output.csv"
+        val lines  = sc.textFile(path)
+
+        // parse files
+        val data = lines.map(x => (x.split(",")(0), (x.split(",")(1).toDouble, x.split(",")(2).toDouble))) // (id, (actual, predicted))
+        val severities = sc.parallelize(List((1.0, 0.0), (2.0, 0.0), (3.0, 0.0), (4.0, 0.0)))
+
+        //note, if tp is 0, the key is not preserved
+        val tp = data
+          .filter({case (_, (actual, predicted)) => actual==predicted}) // true positives
+          .map({case (_, (actual, _)) => (actual, 1)}) // (key, 1) <-- using "1" for eventual counting
+          .reduceByKey(_+_) // (severity, tp)
+        //note, if there are no predictions of a certain severity, that key is not preserved
+        val tpfp = data
+          .map({case (_, (_, predicted)) => (predicted,1)})
+          .reduceByKey(_+_) // (severity, tp+fp)
+
+        val result = tp.join(tpfp) // (severity, (tp, tp+fp))
+          .map({case (severity, (tp, tpfp)) => (severity, tp*1.0/tpfp)}) // (sev, precision)
+          .rightOuterJoin(severities) // (sev, (Some(precision) or None, 0.0))
+          .map({
+              case (sev, (Some(prec), _)) => (sev, prec)
+              case (sev, (None, _)) => (sev, 0.0)
+          }).values.sum()/4 //done in main memory because there's only gonna be 4 precisions
+        println(result)
+    }
 }
