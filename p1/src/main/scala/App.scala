@@ -4,7 +4,7 @@ import org.apache.spark._
 import java.io.{BufferedWriter, File, FileWriter}
 
 
-object AccidentPredictor {
+object App {
     def main(args: Array[String]): Unit = {
         System.setProperty("hadoop.home.dir", "c:/winutils/")
         Logger.getLogger("org").setLevel(Level.OFF)
@@ -44,28 +44,24 @@ object AccidentPredictor {
         sample1.take(minGroupSize).foreach(str => {
             bw.write(str)
             bw.write("\n")})
-
         val sample2 = filtered.filter{case (sev: String, (_, _, _, _, _, _)) => checkDouble(sev) == 2.0 }.map{
             case (sev: String, (aid: String, stt: String, stLat: String, stLng: String, vis: String, precip: String)) =>
                 (aid, sev, stt, stLat, stLng, vis, precip).productIterator.toArray.mkString(",")}
         sample2.take(minGroupSize).foreach(str => {
             bw.write(str)
             bw.write("\n")})
-
         val sample3 = filtered.filter{case (sev: String, (_, _, _, _, _, _)) => checkDouble(sev) == 3.0 }.map{
             case (sev: String, (aid: String, stt: String, stLat: String, stLng: String, vis: String, precip: String)) =>
                 (aid, sev, stt, stLat, stLng, vis, precip).productIterator.toArray.mkString(",")}
         sample3.take(minGroupSize).foreach(str => {
             bw.write(str)
             bw.write("\n")})
-
         val sample4 = filtered.filter{case (sev: String, (_, _, _, _, _, _)) => checkDouble(sev) == 4.0 }.map{
             case (sev: String, (aid: String, stt: String, stLat: String, stLng: String, vis: String, precip: String)) =>
                 (aid, sev, stt, stLat, stLng, vis, precip).productIterator.toArray.mkString(",")}
         sample4.take(minGroupSize).foreach(str => {
             bw.write(str)
             bw.write("\n")})
-
         bw.close()
 
         val k = 20
@@ -158,25 +154,19 @@ object AccidentPredictor {
                 case (_, sev: Double) => (sev, 1)}
             val sev = sc.parallelize(topNDistSev).reduceByKey((x, y) => x + y).map{
                 case (sev: Double, count: Int) => (count, sev)}.sortByKey(ascending = false).take(1)(0)._2
-            //println(acc._2.head.toString + " actual: " + acc._1.toString + " model: " + sev)
             bwp.write(acc._2.head.toString + "," + acc._1.toString + "," + sev + "\n")
-            //EXAMPLE OUTPUT: 12345,2.0,3.0
-            //AccidentID,Known Severity,Predicted Severity
         })
-    }
-    
-    def calcSeverityRecall(severity: String): Double = {
-      // assumes you can access 'accidents' rdd when accidents is the output.csv file
-      val TP = accidents.filter(x => x._2._1 == severity && x._2._2 == severity).count()    // gets true positives (num guessed correctly)
-      val TPFN = accidents.filter(x => x._2._1 == severity).count()  // true positives + false negatives (num of known severity values)
-      TP * 1.0 / TPFN
-    }
-
-    def calcTotalRecall(): Double = {
-      val severities = List("1", "2", "3", "4")
-      var recallSum = 0.0
-      for (s <- severities) {recallSum += calcSeverityRecall(s)}
-      recallSum * 1.0 / 4     // average of all 4 severity recall values
+        val modeledOut = sc.textFile("output.csv")      // ID -> known, predicted
+            .map(_.split(",")).map(x => (x(0), (x(1), x(2)))).persist
+        val severities = List("1.0", "2.0", "3.0", "4.0")
+        var recallSum = 0.0
+        for (s <- severities) {
+            val TP = modeledOut.filter(x => x._2._1 == s && x._2._2 == s).count()    // gets true positives (num guessed correctly)
+            val TPFN = modeledOut.filter(x => x._2._1 == s).count()  // true positives + false negatives (num of known severity values)
+            val severityRecall = TP * 1.0 / TPFN
+            recallSum += severityRecall
+        }
+        println(recallSum * 1.0 / 4)   // average of all 4 severity recall values
     }
 
     def checkDouble(DoubleHuh: String): Double = {
