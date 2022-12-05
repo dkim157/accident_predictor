@@ -164,6 +164,20 @@ object AccidentPredictor {
             //AccidentID,Known Severity,Predicted Severity
         })
     }
+    
+    def calcSeverityRecall(severity: String): Double = {
+      // assumes you can access 'accidents' rdd when accidents is the output.csv file
+      val TP = accidents.filter(x => x._2._1 == severity && x._2._2 == severity).count()    // gets true positives (num guessed correctly)
+      val TPFN = accidents.filter(x => x._2._1 == severity).count()  // true positives + false negatives (num of known severity values)
+      TP * 1.0 / TPFN
+    }
+
+    def calcTotalRecall(): Double = {
+      val severities = List("1", "2", "3", "4")
+      var recallSum = 0.0
+      for (s <- severities) {recallSum += calcSeverityRecall(s)}
+      recallSum * 1.0 / 4     // average of all 4 severity recall values
+    }
 
     def checkDouble(DoubleHuh: String): Double = {
         try {
