@@ -188,6 +188,12 @@ object App {
         }
         ret
     }
+    
+    def printF1Score(precision: Double, recall: Double): Unit = {
+      var f1 = ((2.0 * precision * recall) / (precision + recall)) * 100
+      f1 = f1.setScale(2, BigDecimal.RoundingMode.HALF_UP).toDouble
+      println("F1 Score: " + f1.toString + "%")
+    }
 
     def getPrecision(): Unit={
         // read in csv's
