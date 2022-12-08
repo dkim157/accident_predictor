@@ -4,7 +4,7 @@ import org.apache.spark._
 import scala.math.BigDecimal.double2bigDecimal
 
 
-object AccidentPredictor {
+object App {
     def main(args: Array[String]): Unit = {
         System.setProperty("hadoop.home.dir", "c:/winutils/")
         Logger.getLogger("org").setLevel(Level.OFF)
