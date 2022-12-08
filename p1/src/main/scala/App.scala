@@ -1,10 +1,10 @@
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark._
 
-import java.io.{BufferedWriter, File, FileWriter}
+import scala.math.BigDecimal.double2bigDecimal
 
 
-object App {
+object AccidentPredictor {
     def main(args: Array[String]): Unit = {
         System.setProperty("hadoop.home.dir", "c:/winutils/")
         Logger.getLogger("org").setLevel(Level.OFF)
@@ -101,7 +101,6 @@ object App {
             }
             accidentVector
         }).filter(l => l.head > 0.0).map(vector => (vector.head, vector.tail)).persist
-        testingSet.take(1).foreach(println)
         println(testingSet.count())
 
         var maxTimeAll = 0.0
@@ -156,18 +155,57 @@ object App {
                 case (sev: Double, count: Int) => (count, sev)}.sortByKey(ascending = false).take(1)(0)._2
             bwp.write(acc._2.head.toString + "," + acc._1.toString + "," + sev + "\n")
         })
+        bwp.close()
         val modeledOut = sc.textFile("output.csv")      // ID -> known, predicted
             .map(_.split(",")).map(x => (x(0), (x(1), x(2)))).persist
         val severities = List("1.0", "2.0", "3.0", "4.0")
         var recallSum = 0.0
+
         for (s <- severities) {
             val TP = modeledOut.filter(x => x._2._1 == s && x._2._2 == s).count()    // gets true positives (num guessed correctly)
             val TPFN = modeledOut.filter(x => x._2._1 == s).count()  // true positives + false negatives (num of known severity values)
             val severityRecall = TP * 1.0 / TPFN
             recallSum += severityRecall
         }
-        println(recallSum * 1.0 / 4)   // average of all 4 severity recall values
+
+        val recall = (recallSum * 1.0) / 4.0
+        println(recall)   // average of all 4 severity recall values
+
+        val lines  = sc.textFile("output.csv")
+        // parse files
+        val data = lines.map(x => (x.split(",")(0),
+            (x.split(",")(1).toDouble, x.split(",")(2).toDouble))).persist // (id, (actual, predicted))
+        val severities2 = sc.parallelize(List((1.0, 0.0), (2.0, 0.0), (3.0, 0.0), (4.0, 0.0)))
+
+        //note, if tp is 0, the key is not preserved
+        val tp = data
+            .filter({case (_, (actual, predicted)) => actual==predicted}) // true positives
+            .map({case (_, (actual, _)) => (actual, 1)}) // (key, 1) <-- using "1" for eventual counting
+            .reduceByKey(_+_) // (severity, tp)
+        //note, if there are no predictions of a certain severity, that key is not preserved
+        val tpfp = data
+            .map({case (_, (_, predicted)) => (predicted,1)})
+            .reduceByKey(_+_) // (severity, tp+fp)
+
+        val precision = tp.join(tpfp) // (severity, (tp, tp+fp))
+            .map({case (severity, (tp, tpfp)) => (severity, tp*1.0/tpfp)}) // (sev, precision)
+            .rightOuterJoin(severities2) // (sev, (Some(precision) or None, 0.0))
+            .map({
+                case (sev, (Some(prec), _)) => (sev, prec)
+                case (sev, (None, _)) => (sev, 0.0)
+            }).values.sum()/4.0 //done in main memory because there's only gonna be 4 precisions
+        println(precision)
+
+        printF1Score(precision, recall)
     }
+
+
+    def printF1Score(precision: Double, recall: Double): Unit = {
+        var f1 = ((2.0 * precision * recall) / (precision + recall)) * 100
+        f1 = f1.setScale(2, BigDecimal.RoundingMode.HALF_UP).toDouble
+        println("F1 Score: " + f1.toString + "%")
+    }
+
 
     def checkDouble(DoubleHuh: String): Double = {
         try {
@@ -187,41 +225,5 @@ object App {
             ret = 12.0 - (B - (A + 12.0))
         }
         ret
-    }
-    
-    def printF1Score(precision: Double, recall: Double): Unit = {
-      var f1 = ((2.0 * precision * recall) / (precision + recall)) * 100
-      f1 = f1.setScale(2, BigDecimal.RoundingMode.HALF_UP).toDouble
-      println("F1 Score: " + f1.toString + "%")
-    }
-
-    def getPrecision(): Unit={
-        // read in csv's
-        val home = System.getProperty("user.home")
-        val path = s"${home}/Documents/CSC369/misc/scratch/sparkscala/output.csv"
-        val lines  = sc.textFile(path)
-
-        // parse files
-        val data = lines.map(x => (x.split(",")(0), (x.split(",")(1).toDouble, x.split(",")(2).toDouble))) // (id, (actual, predicted))
-        val severities = sc.parallelize(List((1.0, 0.0), (2.0, 0.0), (3.0, 0.0), (4.0, 0.0)))
-
-        //note, if tp is 0, the key is not preserved
-        val tp = data
-          .filter({case (_, (actual, predicted)) => actual==predicted}) // true positives
-          .map({case (_, (actual, _)) => (actual, 1)}) // (key, 1) <-- using "1" for eventual counting
-          .reduceByKey(_+_) // (severity, tp)
-        //note, if there are no predictions of a certain severity, that key is not preserved
-        val tpfp = data
-          .map({case (_, (_, predicted)) => (predicted,1)})
-          .reduceByKey(_+_) // (severity, tp+fp)
-
-        val result = tp.join(tpfp) // (severity, (tp, tp+fp))
-          .map({case (severity, (tp, tpfp)) => (severity, tp*1.0/tpfp)}) // (sev, precision)
-          .rightOuterJoin(severities) // (sev, (Some(precision) or None, 0.0))
-          .map({
-              case (sev, (Some(prec), _)) => (sev, prec)
-              case (sev, (None, _)) => (sev, 0.0)
-          }).values.sum()/4 //done in main memory because there's only gonna be 4 precisions
-        println(result)
     }
 }
